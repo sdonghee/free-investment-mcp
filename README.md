@@ -6,12 +6,12 @@ A free, no-key MCP server for public investment research. It runs as a Cloudflar
 
 | Tool | Data source | What it does |
 | --- | --- | --- |
-| `get_stock_quote` | Stooq | Retrieves the latest available US or Korean end-of-day/delayed quote |
+| `get_stock_quote` | Yahoo Finance | Retrieves the latest available US or Korean quote |
 | `get_sec_company_filings` | U.S. SEC EDGAR | Finds a company's recent SEC filings by ticker or CIK |
 | `get_world_bank_indicator` | World Bank Open Data | Returns recent macroeconomic observations by country and indicator |
 | `search_clinical_trials` | ClinicalTrials.gov | Searches trial metadata by disease, drug, company, or research term |
 
-The service only accesses public sources and does not require API keys. Market data can be delayed, unavailable, or incomplete; use it for research and verify material facts before making investment decisions.
+The service only accesses public sources and does not require API keys. Market data can be delayed or incomplete; use it for research and verify material facts before making investment decisions.
 
 ## Deploy to Cloudflare
 
