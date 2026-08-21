@@ -13,6 +13,34 @@ type CompanyTicker = {
   title: string;
 };
 
+type YahooChartResponse = {
+  chart: {
+    result?: Array<{
+      meta: {
+        symbol?: string;
+        currency?: string;
+        regularMarketPrice?: number;
+        regularMarketTime?: number;
+        regularMarketChange?: number;
+        regularMarketChangePercent?: number;
+        exchangeName?: string;
+        marketState?: string;
+      };
+      timestamp?: number[];
+      indicators?: {
+        quote?: Array<{
+          open?: Array<number | null>;
+          high?: Array<number | null>;
+          low?: Array<number | null>;
+          close?: Array<number | null>;
+          volume?: Array<number | null>;
+        }>;
+      };
+    }> | null;
+    error?: { description?: string } | null;
+  };
+};
+
 type SecSubmissions = {
   name: string;
   cik: string;
@@ -112,7 +140,7 @@ function createServer(): McpServer {
     {
       title: "Get stock quote",
       description:
-        "Return the latest available end-of-day or delayed quote from Stooq. This is research data, not investment advice.",
+        "Return the latest available quote from Yahoo Finance. This is research data, not investment advice.",
       inputSchema: {
         symbol: z.string().trim().min(1).max(20).describe("Ticker symbol, such as AAPL or 005930"),
         market: z.enum(["us", "kr"]).default("us").describe("Market suffix when the symbol has none")
@@ -120,46 +148,48 @@ function createServer(): McpServer {
     },
     async ({ symbol, market }) => {
       try {
-        const normalized = symbol.trim().toLowerCase().replace(/[^a-z0-9.-]/g, "");
+        const normalized = symbol.trim().toUpperCase().replace(/[^A-Z0-9.-]/g, "");
 
         if (!normalized) {
           return toolError("Provide a valid ticker symbol.");
         }
 
-        const stooqSymbol = normalized.includes(".") ? normalized : normalized + "." + market;
+        const yahooSymbol = normalized.includes(".")
+          ? normalized
+          : market === "kr"
+            ? normalized + ".KS"
+            : normalized;
         const url =
-          "https://stooq.com/q/l/?s=" +
-          encodeURIComponent(stooqSymbol) +
-          "&f=sd2t2ohlcv&h&e=csv";
-        const response = await fetch(url, {
-          headers: { Accept: "text/csv" }
+          "https://query1.finance.yahoo.com/v8/finance/chart/" +
+          encodeURIComponent(yahooSymbol) +
+          "?range=5d&interval=1d";
+        const payload = await fetchJson<YahooChartResponse>(url, {
+          Accept: "application/json",
+          "User-Agent": "Mozilla/5.0 (compatible; free-investment-mcp/0.2)"
         });
+        const result = payload.chart.result?.[0];
 
-        if (!response.ok) {
-          return toolError("Stooq request failed with HTTP " + response.status + ".");
+        if (!result) {
+          return toolError(payload.chart.error?.description ?? "No quote was found for " + symbol + ".");
         }
 
-        const rows = (await response.text()).trim().split(/\r?\n/);
-
-        if (rows.length < 2) {
-          return toolError("Stooq returned no quote for " + symbol + ".");
-        }
-
-        const headers = rows[0].split(",");
-        const values = rows[1].split(",");
-        const quote = Object.fromEntries(
-          headers.map((header, index) => [header.toLowerCase(), values[index] ?? null])
-        );
-
-        if (quote.close === "N/D") {
-          return toolError("No quote was found for " + symbol + ".");
-        }
+        const quote = result.indicators?.quote?.[0];
+        const latestClose =
+          (quote?.close ?? []).filter((price): price is number => typeof price === "number").at(-1) ?? null;
 
         return toolText({
-          source: "Stooq",
-          symbol: stooqSymbol.toUpperCase(),
-          data: quote,
-          note: "Stooq data may be delayed or end-of-day. Verify before making investment decisions."
+          source: "Yahoo Finance",
+          symbol: result.meta.symbol ?? yahooSymbol,
+          currency: result.meta.currency ?? null,
+          price: result.meta.regularMarketPrice ?? latestClose,
+          regularMarketChange: result.meta.regularMarketChange ?? null,
+          regularMarketChangePercent: result.meta.regularMarketChangePercent ?? null,
+          marketState: result.meta.marketState ?? null,
+          exchange: result.meta.exchangeName ?? null,
+          timestamp: result.meta.regularMarketTime
+            ? new Date(result.meta.regularMarketTime * 1000).toISOString()
+            : null,
+          note: "Yahoo Finance data may be delayed or incomplete. Verify before making investment decisions."
         });
       } catch (error) {
         return toolError("Unable to retrieve the quote: " + errorMessage(error));
